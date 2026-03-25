@@ -10,30 +10,34 @@ df = pd.read_csv("house_prices.csv")
 X = df.drop("Price", axis=1).values
 y = df["Price"].values
 
+# ---------------- FEATURE SCALING ---------------- #
+X_mean = X.mean(axis=0)
+X_std = X.std(axis=0)
+X_std[X_std == 0] = 1  # Avoid division by zero
+
+X_scaled = (X - X_mean) / X_std
+
+# ---------------- TARGET SCALING ---------------- #
+y_mean = y.mean()
+y_std = y.std()
+y_scaled = (y - y_mean) / y_std
+
 # Split
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X_scaled, y_scaled, test_size=0.2, random_state=42
 )
 
-# Feature scaling
-mean = X_train.mean(axis=0)
-std = X_train.std(axis=0)
-std[std == 0] = 1
-
-X_train = (X_train - mean) / std
-X_test = (X_test - mean) / std
-
 # Initialize parameters
-n = X_train.shape[1]
-w = np.zeros(n)
-b = 0
+n_features = X_train.shape[1]
+w = np.zeros(n_features)
+b = 0.0
 
-# Cost function
+# Cost function (MSE)
 def cost_function(X, y, w, b):
     m = X.shape[0]
     return np.sum((np.dot(X, w) + b - y) ** 2) / (2 * m)
 
-# Gradient
+# Gradient computation
 def compute_gradient(X, y, w, b):
     m = X.shape[0]
     errors = np.dot(X, w) + b - y
@@ -43,24 +47,48 @@ def compute_gradient(X, y, w, b):
 
 # Gradient descent
 def gradient_descent(X, y, w, b, alpha, num_iters):
+    prev_cost = float("inf")
     for i in range(num_iters):
         dj_dw, dj_db = compute_gradient(X, y, w, b)
-        w -= alpha * dj_dw
-        b -= alpha * dj_db
-        
-        if i % 100 == 0:
+        w = w - alpha * dj_dw
+        b = b - alpha * dj_db
+
+        if i % 500 == 0:
             cost = cost_function(X, y, w, b)
-            print(f"Iteration {i}: Cost = {cost:.2f}")
-    
+            print(f"Iteration {i:>5}: Cost = {cost:.6f}")
+
+            # ✅ Early stop if cost stops improving meaningfully
+            if abs(prev_cost - cost) < 1e-9:
+                print(f"   Converged early at iteration {i}")
+                break
+            prev_cost = cost
+
     return w, b
 
-# Train model
-w, b = gradient_descent(X_train, y_train, w, b, alpha=0.01, num_iters=1000)
+# ✅ Train — higher iterations, stable learning rate
+w, b = gradient_descent(X_train, y_train, w, b, alpha=0.05, num_iters=5000)
 
-print("✅ Training complete")
+print("\n✅ Training complete")
 
-# Save model (VERY IMPORTANT: include scaling)
+# ---------------- EVALUATE ---------------- #
+def r2_score(y_true, y_pred):
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - y_true.mean()) ** 2)
+    return 1 - ss_res / ss_tot
+
+y_pred_scaled = np.dot(X_test, w) + b
+y_pred_actual = y_pred_scaled * y_std + y_mean
+y_test_actual = y_test * y_std + y_mean
+
+r2 = r2_score(y_test_actual, y_pred_actual)
+mae = np.mean(np.abs(y_test_actual - y_pred_actual))
+
+print(f"   R² Score : {r2:.4f}  (1.0 = perfect)")
+print(f"   MAE      : ₹{mae:,.0f}")
+print(f"   Pred range: ₹{y_pred_actual.min():,.0f} – ₹{y_pred_actual.max():,.0f}")
+
+# ---------------- SAVE MODEL ---------------- #
 with open("model.pkl", "wb") as f:
-    pickle.dump((w, b, mean, std), f)
+    pickle.dump((w, b, X_mean, X_std, y_mean, y_std), f)
 
-print("✅ Model saved as model.pkl")
+print("\n✅ Model saved to model.pkl")
